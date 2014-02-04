@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <errno.h>
+#include <signal.h>
 
 #define LAST_PORT 65535 // largest valid port number
 
@@ -30,8 +31,28 @@ void set_nonblock(int socket)
     fcntl(socket, F_SETFL, flags | O_NONBLOCK);
 }
 
+// to catch SIGALRM raised by alarm()
+void signal_handler(int signum)
+{
+	// ignore signal, interrupt current blocking call, and continue
+}
+
 int main()
 {
+	//signal(SIGALRM, signal_handler);
+	
+	// register SIGALRM hanlder with sigaction()
+	// to ensure connect() is interrupted when alarm is raised
+	struct sigaction sa;
+	
+	sa.sa_handler = signal_handler;
+	sigemptyset(&sa.sa_mask);
+	
+	if(sigaction(SIGALRM, &sa, NULL) == -1)
+	{
+		std::cerr << strerror(errno) << std::endl;
+	}
+	
 	int socket_fd = -1; 
 	
 	struct sockaddr_in sock_info;
@@ -66,9 +87,17 @@ int main()
 
 		sock_info.sin_port = htons(i); 
 
-		if(connect(socket_fd, (struct sockaddr*)&sock_info, sizeof(sockaddr_in)) < 0)
+		// use alarm to timeout for closed sockets
+		// set rc to an unsuccessful value upfront so if we timeout we 
+		// go into error block
+		int rc = -1;
+		alarm(1);
+		rc = connect(socket_fd, (struct sockaddr*)&sock_info, sizeof(sockaddr_in));
+		alarm(0);
+
+		if(rc < 0)
 		{
-			std::cerr << strerror(errno) << std::endl;
+			//std::cerr << strerror(errno) << std::endl;
 			close(socket_fd);
 		}
 		else
