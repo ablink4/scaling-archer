@@ -1,9 +1,13 @@
 /*
  * Author: ablink4
  * 
- * TODO list:
- *   1. ping IP address before trying to connect to it
- *   2. figure out how to reduce timeout on closed ports
+ * TODO: 
+ * 
+ * 1.  see if I can figure out how to determine filtered ports on the
+ *     TCP connect scan to eliminate unnecessary timeout so scan doesn't
+ *     take forever.
+ * 2.  implement a TCP SYN scan with raw packets to try and improve
+ *     performance.  
  * 
  */ 
 
@@ -23,51 +27,28 @@
 
 #define LAST_PORT 65535 // largest valid port number
 
-void set_nonblock(int socket) 
-{
-    int flags;
-    flags = fcntl(socket,F_GETFL,0);
-    assert(flags != -1);
-    fcntl(socket, F_SETFL, flags | O_NONBLOCK);
-}
-
 // to catch SIGALRM raised by alarm()
 void signal_handler(int signum)
 {
 	// ignore signal, interrupt current blocking call, and continue
 }
 
-int main()
+// function to do a TCP connect scan
+// assumes signal handler for SIGALRM is already setup
+void tcp_conn_scan(const char* host)
 {
-	//signal(SIGALRM, signal_handler);
-	
-	// register SIGALRM hanlder with sigaction()
-	// to ensure connect() is interrupted when alarm is raised
-	struct sigaction sa;
-	
-	sa.sa_handler = signal_handler;
-	sigemptyset(&sa.sa_mask);
-	
-	if(sigaction(SIGALRM, &sa, NULL) == -1)
-	{
-		std::cerr << strerror(errno) << std::endl;
-	}
-	
 	int socket_fd = -1; 
 	
 	struct sockaddr_in sock_info;
 	struct hostent *host_ptr;
 	
-	// using google as a test
-	const char *hostname = "www.google.com"; 
-	
-	host_ptr = gethostbyname(hostname);
+	host_ptr = gethostbyname(host);
 	
 	if(host_ptr == NULL)
 	{
 		std::cerr << strerror(errno) << std::endl;
 		close(socket_fd);
-		exit(-2);
+		exit(-1);
 	}
 
 	memcpy((char*)&sock_info.sin_addr, host_ptr->h_addr, host_ptr->h_length);
@@ -82,8 +63,6 @@ int main()
 			std::cerr << strerror(errno) << std::endl;
 			exit(-1);
 		}
-		
-		//set_nonblock(socket_fd);
 
 		sock_info.sin_port = htons(i); 
 
@@ -106,6 +85,32 @@ int main()
 			close(socket_fd);
 		}
 	}
+}
+
+int main(int argc, char *argv[])
+{
+	if(argv[1] == NULL)
+	{
+		std::cerr << "Invalid argument: arg 1 must be hostname to scan." << std::endl;
+		exit(-1);
+	}
+	
+	const char *hostname = strdup(argv[1]); 
+	
+	// register SIGALRM hanlder with sigaction()
+	// to ensure connect() is interrupted when alarm is raised
+	struct sigaction sa;
+	
+	sa.sa_handler = signal_handler;
+	sigemptyset(&sa.sa_mask);
+	
+	if(sigaction(SIGALRM, &sa, NULL) == -1)
+	{
+		std::cerr << strerror(errno) << std::endl;
+		exit(-1);
+	}
+	
+	tcp_conn_scan(hostname);
 	
     return(0);
 }
